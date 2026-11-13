@@ -6,7 +6,7 @@
  * Componente principal que orquesta el estado, navegación, persistencia y módulos.
  */
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Navbar } from './components/Navbar';
 import { TabsNav } from './components/TabsNav';
 import { DashboardView } from './components/views/DashboardView';
@@ -40,6 +40,7 @@ import {
   DEMO_SAMPLE_TRANSACTIONS,
   DEMO_SAMPLE_SCHEDULED_PAYMENTS
 } from './data/initialData';
+import { AppState, mergeStates, statesEqual } from './utils/syncMerge';
 import { exportTransactionsToExcel } from './services/excelReport';
 import { generateFinancialPDFReport } from './services/pdfReport';
 
@@ -178,53 +179,136 @@ export function App() {
     localStorage.setItem(STORAGE_KEYS.BUDGET, JSON.stringify(budget));
   }, [budget]);
 
-  // Cargar base de datos guardada en disco al montar
-  useEffect(() => {
-    fetch('/api/database')
-      .then(res => res.json())
-      .then(res => {
-        if (res.success && res.data) {
-          if (Array.isArray(res.data.transactions) && res.data.transactions.length > 0) {
-            setTransactions(res.data.transactions);
-          }
-          if (Array.isArray(res.data.properties) && res.data.properties.length > 0) {
-            setProperties(res.data.properties);
-          }
-          if (Array.isArray(res.data.scheduledPayments) && res.data.scheduledPayments.length > 0) {
-            setScheduledPayments(res.data.scheduledPayments);
-          }
-          if (Array.isArray(res.data.partners) && res.data.partners.length > 0) {
-            setPartners(res.data.partners);
-          }
-          if (res.data.budget) {
-            setBudget(res.data.budget);
-          }
-          if (res.data.companyProfile) {
-            setCompanyProfile(res.data.companyProfile);
-          }
-        }
-      })
-      .catch(() => {});
-  }, []);
+  // ───────────── Sincronización con el servidor (Supabase / archivo) ─────────────
+  // El servidor es la fuente de verdad. El conector MCP de Claude también escribe ahí,
+  // así que la app consulta cambios cada 15 s y fusiona si hay escrituras simultáneas.
+  const currentState: AppState = useMemo(
+    () => ({ companyProfile, partners, properties, transactions, scheduledPayments, budget }),
+    [companyProfile, partners, properties, transactions, scheduledPayments, budget]
+  );
+  const currentStateRef = useRef(currentState);
+  currentStateRef.current = currentState;
+  const syncRef = useRef<{ version: number; base: AppState | null; ready: boolean; saving: boolean }>({
+    version: 0,
+    base: null,
+    ready: false,
+    saving: false
+  });
 
-  // Guardar automáticamente en disco en el backend (data/moai_database.json)
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      fetch('/api/database', {
+  const normalizeRemote = (d: any, fallback: AppState): AppState => ({
+    companyProfile: d?.companyProfile ?? fallback.companyProfile,
+    partners: Array.isArray(d?.partners) ? d.partners : fallback.partners,
+    properties: Array.isArray(d?.properties) ? d.properties : fallback.properties,
+    transactions: Array.isArray(d?.transactions) ? d.transactions : fallback.transactions,
+    scheduledPayments: Array.isArray(d?.scheduledPayments) ? d.scheduledPayments : fallback.scheduledPayments,
+    budget: d?.budget ?? fallback.budget
+  });
+
+  const applyState = (s: AppState) => {
+    setCompanyProfile(s.companyProfile);
+    setPartners(s.partners);
+    setProperties(s.properties);
+    setTransactions(s.transactions);
+    setScheduledPayments(s.scheduledPayments);
+    setBudget(s.budget);
+  };
+
+  const mergeOnto = (local: AppState, remote: AppState): AppState => {
+    const base = syncRef.current.base ?? {
+      ...local,
+      partners: [],
+      properties: [],
+      transactions: [],
+      scheduledPayments: []
+    };
+    return mergeStates(base, local, remote);
+  };
+
+  const pullRemote = async () => {
+    const sync = syncRef.current;
+    if (sync.saving) return;
+    try {
+      const res = await fetch('/api/database').then(r => r.json());
+      if (!res.success) return;
+      const version = Number(res.version) || 0;
+      const local = currentStateRef.current;
+      if (!sync.ready) {
+        sync.ready = true;
+        sync.version = version;
+        if (res.data) {
+          const remote = normalizeRemote(res.data, local);
+          sync.base = remote;
+          applyState(remote);
+        }
+        return;
+      }
+      if (version === sync.version) return;
+      const remote = normalizeRemote(res.data, local);
+      const hasLocalChanges = !sync.base || !statesEqual(sync.base, local);
+      const next = hasLocalChanges ? mergeOnto(local, remote) : remote;
+      sync.base = remote;
+      sync.version = version;
+      applyState(next);
+    } catch {
+      /* sin conexión: se reintenta en el siguiente ciclo */
+    }
+  };
+
+  const pushLocal = async () => {
+    const sync = syncRef.current;
+    if (!sync.ready || sync.saving) return;
+    const local = currentStateRef.current;
+    if (sync.base && statesEqual(sync.base, local)) return;
+    sync.saving = true;
+    try {
+      const r = await fetch('/api/database', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          companyProfile,
-          partners,
-          properties,
-          transactions,
-          scheduledPayments,
-          budget
-        })
-      }).catch(() => {});
-    }, 800);
+        body: JSON.stringify({ data: local, baseVersion: sync.version })
+      });
+      const res = await r.json();
+      if (r.status === 409 && res.conflict) {
+        const remote = normalizeRemote(res.data, local);
+        const merged = mergeOnto(local, remote);
+        sync.base = remote;
+        sync.version = Number(res.version) || 0;
+        applyState(merged);
+      } else if (res.success) {
+        sync.base = local;
+        sync.version = Number(res.version) || 0;
+      }
+    } catch {
+      /* sin conexión: se reintenta con el próximo cambio */
+    } finally {
+      sync.saving = false;
+      if (sync.base && !statesEqual(sync.base, currentStateRef.current)) {
+        setTimeout(() => syncFnsRef.current.pushLocal(), 500);
+      }
+    }
+  };
+
+  const syncFnsRef = useRef({ pullRemote, pushLocal });
+  syncFnsRef.current = { pullRemote, pushLocal };
+
+  // Cargar al montar + consultar cambios periódicamente y al volver a la pestaña
+  useEffect(() => {
+    syncFnsRef.current.pullRemote();
+    const interval = setInterval(() => syncFnsRef.current.pullRemote(), 15000);
+    const onFocus = () => syncFnsRef.current.pullRemote();
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onFocus);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onFocus);
+    };
+  }, []);
+
+  // Guardar automáticamente cada cambio local
+  useEffect(() => {
+    const timer = setTimeout(() => syncFnsRef.current.pushLocal(), 800);
     return () => clearTimeout(timer);
-  }, [companyProfile, partners, properties, transactions, scheduledPayments, budget]);
+  }, [currentState]);
 
   // Modales
   const [isTransactionModalOpen, setIsTransactionModalOpen] = useState(false);
@@ -465,18 +549,6 @@ export function App() {
     setPartners(INITIAL_PARTNERS);
     setBudget(INITIAL_BUDGET);
     setCompanyProfile(INITIAL_COMPANY_PROFILE);
-    fetch('/api/database', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        companyProfile: INITIAL_COMPANY_PROFILE,
-        partners: INITIAL_PARTNERS,
-        properties: INITIAL_PROPERTIES,
-        transactions: INITIAL_TRANSACTIONS,
-        scheduledPayments: INITIAL_SCHEDULED_PAYMENTS,
-        budget: INITIAL_BUDGET
-      })
-    }).catch(() => {});
     alert('Datos restaurados a los parámetros iniciales de MOAI Inmobiliaria.');
   };
 
@@ -496,18 +568,6 @@ export function App() {
     localStorage.removeItem(STORAGE_KEYS.TRANSACTIONS);
     localStorage.removeItem(STORAGE_KEYS.PROPERTIES);
     localStorage.removeItem(STORAGE_KEYS.SCHEDULED_PAYMENTS);
-    fetch('/api/database', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        companyProfile,
-        partners,
-        properties: [],
-        transactions: [],
-        scheduledPayments: [],
-        budget
-      })
-    }).catch(() => {});
     alert('Base de datos vaciada a ceros. Lista para registrar movimientos reales.');
   };
 

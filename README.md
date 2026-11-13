@@ -51,6 +51,46 @@ Codespaces detectará automáticamente el puerto **3000**. Haz clic en **"Open i
 
 ---
 
+## ☁️ Despliegue 24/7 (sin depender del Codespace)
+
+```text
+ Claude (claude.ai / app) ──► Conector MCP (Prefect Horizon) ──┐
+                                                                ├──► Supabase (tabla moai_state)
+ Navegador ──────────────────► App web (Render) ───────────────┘
+```
+
+La app web y el conector de Claude leen y escriben la **misma** base de datos. Cada guardado lleva
+un número de versión; si dos escrituras chocan, la app fusiona los cambios por id. La app consulta
+cambios cada 15 s, así que lo que registres por Claude aparece solo.
+
+> 📚 La app de estudiantes (**EduPlata / BolsiUni**) está en [`eduplata/`](eduplata/) y se despliega igual, con su propia tabla, servicio de Render y conector de Horizon (ver [eduplata/README.md](eduplata/README.md)).
+
+### 1. Supabase (base de datos)
+1. Crea un proyecto en [supabase.com](https://supabase.com).
+2. En **SQL Editor** ejecuta [`supabase/schema.sql`](supabase/schema.sql).
+3. En **Project Settings → API** copia la **Project URL** y la clave **service_role** (es secreta: nunca va al navegador).
+
+### 2. App web (Render)
+1. En [render.com](https://render.com): **New → Blueprint** y selecciona este repositorio (usa [`render.yaml`](render.yaml)).
+2. Llena las variables: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `APP_PASSWORD` (recomendado) y, si quieres, `ANTHROPIC_API_KEY`.
+3. El plan gratuito se duerme tras 15 min sin visitas y tarda ~1 min en despertar; los datos no se pierden porque viven en Supabase.
+
+### 3. Conector de Claude (Prefect Horizon)
+1. Entra a [horizon.prefect.io](https://horizon.prefect.io) con GitHub y crea un servidor desde este repositorio.
+2. **Entrypoint:** `mcp_server/server.py:mcp` (las dependencias salen de [`requirements.txt`](requirements.txt)).
+3. Variables de entorno: `SUPABASE_URL` y `SUPABASE_SERVICE_ROLE_KEY`.
+4. Deja la autenticación de Horizon activada para que solo tu organización use el conector.
+5. Copia la URL del servidor (`https://<nombre>.fastmcp.app/mcp`) y en Claude ve a **Configuración → Conectores → Agregar conector personalizado**.
+
+Herramientas que Claude tendrá: `resumen_financiero`, `listar_movimientos`, `listar_inmuebles`,
+`listar_pagos_programados`, `listar_categorias`, `registrar_movimiento`, `eliminar_movimiento`,
+`guardar_inmueble`, `programar_pago`, `ejecutar_pago_programado` y `liquidar_canon`.
+
+Ejemplos: *"Registra que cobramos el canon del apto 402"*, *"Liquida el canon de MOAI-APT-402 con 120 mil de reparación"*,
+*"Programa la póliza de El Libertador de 350 mil cada 30"*, *"¿Cómo va la caja este mes?"*.
+
+---
+
 ## 💡 Innovaciones Contables Incorporadas ("Lo que una inmobiliaria necesita y los software genéricos no tienen")
 
 ### 1. Separación Estricta de Fondos: Caja Propia MOAI vs. Fondo de Custodia de Propietarios

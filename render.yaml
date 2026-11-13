@@ -1,0 +1,41 @@
+# Las dos apps web (MOAI en la raíz y EduPlata en eduplata/). Se crean desde Render → New → Blueprint.
+services:
+  - type: web
+    name: moai-inmobiliaria
+    runtime: node
+    plan: free
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: APP_PASSWORD
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+
+  # App de estudiantes (EduPlata / BolsiUni) — carpeta eduplata/
+  - type: web
+    name: eduplata
+    runtime: node
+    plan: free
+    rootDir: eduplata
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: APP_PASSWORD
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false

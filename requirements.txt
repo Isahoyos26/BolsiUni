@@ -1,0 +1,4 @@
+# Dependencias de los conectores MCP para Prefect Horizon:
+#   mcp_server/server.py (MOAI) y eduplata/mcp_server/server.py (EduPlata)
+fastmcp>=4.2.0
+httpx>=0.28
