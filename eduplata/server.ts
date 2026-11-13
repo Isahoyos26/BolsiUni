@@ -367,8 +367,13 @@ async function startServer() {
   // ───────────── Almacenamiento (Supabase si está configurado, si no archivo local) ─────────────
   // El estado completo de la app se guarda como un único documento JSON con número de versión.
   // La versión permite detectar escrituras concurrentes (app web vs. conector MCP de Claude).
-  const SUPABASE_URL = (process.env.SUPABASE_URL || '').replace(/\/$/, '');
-  const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+  // Tolera URLs pegadas sin https://, con espacios, comillas, / final o /rest/v1
+  const clean = (v: string) => v.trim().replace(/^['"]|['"]$/g, '').trim();
+  const rawUrl = clean(process.env.SUPABASE_URL || '');
+  const SUPABASE_URL = rawUrl
+    ? (/^https?:\/\//.test(rawUrl) ? rawUrl : `https://${rawUrl}`).replace(/\/+$/, '').replace(/\/rest\/v1$/, '')
+    : '';
+  const SUPABASE_KEY = clean(process.env.SUPABASE_SERVICE_ROLE_KEY || '');
   const useSupabase = Boolean(SUPABASE_URL && SUPABASE_KEY);
   const DB_FILE_PATH = path.resolve(__dirname, 'data', 'eduplata_database.json');
 

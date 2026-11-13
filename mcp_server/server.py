@@ -42,8 +42,25 @@ mcp = FastMCP(
 
 # ───────────────────────────── Almacenamiento ─────────────────────────────
 
-SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
-SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
+def _clean(value: str) -> str:
+    return value.strip().strip('"').strip("'").strip()
+
+
+def _normalize_url(value: str) -> str:
+    """Tolera URLs pegadas sin https://, con espacios, comillas, / final o /rest/v1."""
+    url = _clean(value)
+    if not url:
+        return ""
+    if not url.startswith(("http://", "https://")):
+        url = "https://" + url
+    url = url.rstrip("/")
+    if url.endswith("/rest/v1"):
+        url = url[: -len("/rest/v1")]
+    return url
+
+
+SUPABASE_URL = _normalize_url(os.environ.get("SUPABASE_URL", ""))
+SUPABASE_KEY = _clean(os.environ.get("SUPABASE_SERVICE_ROLE_KEY", ""))
 LOCAL_FILE = os.environ.get("MOAI_DB_FILE", "")
 
 
