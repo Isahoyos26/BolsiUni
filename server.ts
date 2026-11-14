@@ -486,7 +486,7 @@ async function startServer() {
   if (APP_PASSWORD) {
     app.use((req, res, next) => {
       // /mcp tiene su propia protección (clave del link del conector)
-      if (req.path === '/api/health' || req.path === '/mcp') return next();
+      if (req.path === '/api/health' || req.path === '/mcp' || req.path.startsWith('/.well-known/')) return next();
       const header = req.headers.authorization || '';
       const [scheme, encoded] = header.split(' ');
       if (scheme === 'Basic' && encoded) {
@@ -612,6 +612,9 @@ async function startServer() {
       return res.status(500).json({ success: false, error: 'Error guardando base de datos.' });
     }
   });
+
+  // Sin OAuth: Claude consulta /.well-known/* para saber si debe iniciar sesión; responder 404 (no HTML)
+  app.all('/.well-known/*', (req: Request, res: Response) => res.status(404).json({ error: 'not_found' }));
 
   // Conector MCP de Claude en /mcp (link secreto de la empresa: /mcp?key=MCP_KEY)
   registerMcpRoute(app, { readState, writeState: (data, base) => writeState(data, base) });

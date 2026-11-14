@@ -352,6 +352,9 @@ async function startServer() {
   // Cuentas de usuario, datos por usuario y link personal del conector de Claude (ver accounts.ts)
   const accounts = registerAccountRoutes(app, path.resolve(__dirname, 'data'));
 
+  // Sin OAuth: Claude consulta /.well-known/* para saber si debe iniciar sesión; responder 404 (no HTML)
+  app.all('/.well-known/*', (req: Request, res: Response) => res.status(404).json({ error: 'not_found' }));
+
   // Conector MCP de Claude en /mcp (cada estudiante usa su link personal ?key=...)
   registerMcpRoute(app, accounts);
 
