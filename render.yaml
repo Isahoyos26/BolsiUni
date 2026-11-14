@@ -35,7 +35,5 @@ services:
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
-      - key: MCP_PUBLIC_URL
-        value: https://eduplata.fastmcp.app/mcp
       - key: ANTHROPIC_API_KEY
         sync: false

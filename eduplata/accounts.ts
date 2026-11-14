@@ -22,7 +22,6 @@ import path from 'path';
 const TABLE = 'eduplata_user_state';
 const COOKIE = 'edu_session';
 const COOKIE_MAX_AGE_S = 60 * 60 * 24 * 30; // 30 días
-const DEFAULT_MCP_URL = 'https://eduplata.fastmcp.app/mcp';
 
 export interface SessionUser {
   id: string;
@@ -305,15 +304,16 @@ export function registerAccountRoutes(app: Express, dataDir: string) {
   });
 
   // ───────────── Link personal del conector de Claude ─────────────
-  const mcpUrl = () => clean(process.env.MCP_PUBLIC_URL || '') || DEFAULT_MCP_URL;
+  // Por defecto el conector es la ruta /mcp de esta misma app (ver mcp.ts)
+  const mcpUrl = (req: Request) => clean(process.env.MCP_PUBLIC_URL || '') || `${req.protocol}://${req.get('host')}/mcp`;
 
   app.get('/api/connector', requireUser, async (req, res) => {
-    if (!sb.enabled) return res.json({ success: true, hasKey: false, mcpUrl: mcpUrl(), localMode: true });
+    if (!sb.enabled) return res.json({ success: true, hasKey: false, mcpUrl: mcpUrl(req), localMode: true });
     try {
       const r = await sbFetch(`/rest/v1/${TABLE}?user_id=eq.${res.locals.user.id}&select=connector_key_created_at`);
       if (!r.ok) throw new Error(`Supabase GET ${r.status}`);
       const createdAt = r.body[0]?.connector_key_created_at || null;
-      return res.json({ success: true, hasKey: Boolean(createdAt), createdAt, mcpUrl: mcpUrl() });
+      return res.json({ success: true, hasKey: Boolean(createdAt), createdAt, mcpUrl: mcpUrl(req) });
     } catch (err) {
       console.error('[EduPlata Conector] Error:', err);
       return res.status(500).json({ success: false, error: 'No se pudo consultar el conector.' });
@@ -335,12 +335,21 @@ export function registerAccountRoutes(app: Express, dataDir: string) {
         body: JSON.stringify({ connector_key_hash: hash, connector_key_created_at: createdAt })
       });
       if (!r.ok) throw new Error(`Supabase PATCH ${r.status}: ${JSON.stringify(r.body)}`);
-      return res.json({ success: true, url: `${mcpUrl()}?key=${key}`, createdAt });
+      return res.json({ success: true, url: `${mcpUrl(req)}?key=${key}`, createdAt });
     } catch (err) {
       console.error('[EduPlata Conector] Error generando clave:', err);
       return res.status(500).json({ success: false, error: 'No se pudo generar el link.' });
     }
   });
+
+  /** Busca al usuario dueño de una clave de conector (por su hash). Sin caché: revocar es inmediato. */
+  async function userIdForConnectorKey(key: string): Promise<string | null> {
+    if (!sb.enabled) return LOCAL_USER.id;
+    const hash = crypto.createHash('sha256').update(key).digest('hex');
+    const r = await sbFetch(`/rest/v1/${TABLE}?connector_key_hash=eq.${hash}&select=user_id`);
+    if (!r.ok) throw new Error(`Supabase GET ${r.status}`);
+    return r.body[0]?.user_id ?? null;
+  }
 
   // Diagnóstico para /api/health (sin datos de usuarios)
   async function healthCheck(): Promise<string> {
@@ -354,5 +363,13 @@ export function registerAccountRoutes(app: Express, dataDir: string) {
     }
   }
 
-  return { requireUser, healthCheck, supabaseEnabled: sb.enabled, supabaseHost: sb.enabled ? new URL(sb.url).host : null };
+  return {
+    requireUser,
+    healthCheck,
+    readState,
+    writeState,
+    userIdForConnectorKey,
+    supabaseEnabled: sb.enabled,
+    supabaseHost: sb.enabled ? new URL(sb.url).host : null
+  };
 }

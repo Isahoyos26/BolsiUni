@@ -11,6 +11,7 @@ import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { registerAccountRoutes } from './accounts';
+import { registerMcpRoute } from './mcp';
 
 dotenv.config();
 
@@ -344,10 +345,15 @@ async function startServer() {
   const app = express();
   const PORT = parseInt(process.env.PORT || '3000', 10);
 
+  // Render está detrás de un proxy: así req.protocol es https
+  app.set('trust proxy', 1);
   app.use(express.json({ limit: '10mb' }));
 
   // Cuentas de usuario, datos por usuario y link personal del conector de Claude (ver accounts.ts)
   const accounts = registerAccountRoutes(app, path.resolve(__dirname, 'data'));
+
+  // Conector MCP de Claude en /mcp (cada estudiante usa su link personal ?key=...)
+  registerMcpRoute(app, accounts);
 
   // El asistente de IA solo para usuarios con sesión iniciada
   app.use('/api/claude', accounts.requireUser);
