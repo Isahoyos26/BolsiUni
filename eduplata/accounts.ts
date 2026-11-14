@@ -8,7 +8,7 @@
  *   se hacen desde este servidor; el navegador solo recibe una cookie httpOnly con la sesión.
  * - Cada usuario tiene su fila en `eduplata_user_state` (datos JSON + versión).
  * - Cada usuario puede generar su link personal del conector MCP. Solo se guarda el hash SHA-256
- *   de la clave; el conector (eduplata/mcp_server) busca al usuario por ese hash.
+ *   de la clave; el conector (mcp.ts, ruta /mcp) busca al usuario por ese hash.
  *
  * Sin Supabase configurado (desarrollo local) hay un único usuario "local" y los datos van a
  * data/eduplata_database.json.

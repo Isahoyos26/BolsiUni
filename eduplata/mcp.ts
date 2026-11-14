@@ -5,8 +5,6 @@
  * EduPlata - Conector MCP de Claude servido por la misma app (ruta /mcp).
  *
  * Cada estudiante usa su link personal: https://<app>/mcp?key=edu_...
- * Es el equivalente en TypeScript de eduplata/mcp_server/server.py (que corre en Prefect Horizon):
- * mismas herramientas, mismos nombres y mismo formato de datos. Si cambias uno, cambia el otro.
  */
 
 import type { Express, Request, Response } from 'express';

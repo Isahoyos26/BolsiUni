@@ -5,8 +5,7 @@
  * MOAI Inmobiliaria - Conector MCP de Claude servido por la misma app (ruta /mcp).
  *
  * Los socios usan el link secreto de la empresa: https://<app>/mcp?key=<MCP_KEY>
- * (MCP_KEY es una variable de entorno en Render). Es el equivalente en TypeScript de
- * mcp_server/server.py (Prefect Horizon): mismas herramientas y formato de datos.
+ * (MCP_KEY es una variable de entorno en Render).
  */
 
 import type { Express, Request, Response } from 'express';

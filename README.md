@@ -54,7 +54,7 @@ Codespaces detectará automáticamente el puerto **3000**. Haz clic en **"Open i
 ## ☁️ Despliegue 24/7 (sin depender del Codespace)
 
 ```text
- Claude (claude.ai / app) ──► Conector MCP (Prefect Horizon) ──┐
+ Claude (claude.ai / app) ──► Conector MCP (/mcp en Render) ──┐
                                                                 ├──► Supabase (tabla moai_state)
  Navegador ──────────────────► App web (Render) ───────────────┘
 ```
@@ -63,7 +63,7 @@ La app web y el conector de Claude leen y escriben la **misma** base de datos. C
 un número de versión; si dos escrituras chocan, la app fusiona los cambios por id. La app consulta
 cambios cada 15 s, así que lo que registres por Claude aparece solo.
 
-> 📚 La app de estudiantes (**EduPlata / BolsiUni**) está en [`eduplata/`](eduplata/) y se despliega igual, con su propia tabla, servicio de Render y conector de Horizon (ver [eduplata/README.md](eduplata/README.md)).
+> 📚 La app de estudiantes (**EduPlata / BolsiUni**) está en [`eduplata/`](eduplata/) y se despliega igual, con su propia tabla, servicio de Render y conector en /mcp (ver [eduplata/README.md](eduplata/README.md)).
 
 ### 1. Supabase (base de datos)
 1. Crea un proyecto en [supabase.com](https://supabase.com).
@@ -79,13 +79,6 @@ cambios cada 15 s, así que lo que registres por Claude aparece solo.
 La app sirve el conector en `/mcp` ([`mcp.ts`](mcp.ts)). En Render define `MCP_KEY` (una clave larga y secreta) y comparte con
 los socios el link `https://<tu-app>.onrender.com/mcp?key=<MCP_KEY>`. Cada socio lo agrega en Claude → Conectores → Conector
 personalizado, con "Sin inicio de sesión". La contraseña de la app (`APP_PASSWORD`) no aplica a `/mcp`.
-
-### 3b. (Opcional) Conector en Prefect Horizon
-1. Entra a [horizon.prefect.io](https://horizon.prefect.io) con GitHub y crea un servidor desde este repositorio.
-2. **Entrypoint:** `mcp_server/server.py:mcp` (las dependencias salen de [`requirements.txt`](requirements.txt)).
-3. Variables de entorno: `SUPABASE_URL` y `SUPABASE_SERVICE_ROLE_KEY`.
-4. Deja la autenticación de Horizon activada para que solo tu organización use el conector.
-5. Copia la URL del servidor (`https://<nombre>.fastmcp.app/mcp`) y en Claude ve a **Configuración → Conectores → Agregar conector personalizado**.
 
 Herramientas que Claude tendrá: `resumen_financiero`, `listar_movimientos`, `listar_inmuebles`,
 `listar_pagos_programados`, `listar_categorias`, `registrar_movimiento`, `eliminar_movimiento`,

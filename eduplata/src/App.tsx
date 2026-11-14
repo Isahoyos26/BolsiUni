@@ -232,7 +232,7 @@ export default function App({ user, onLogout }: { user: AuthUser; onLogout: () =
   };
 
   // ───────────── Sincronización con el servidor (Supabase / archivo) ─────────────
-  // El servidor es la fuente de verdad. El conector MCP de Claude (eduplata/mcp_server) también escribe ahí,
+  // El servidor es la fuente de verdad. El conector MCP de Claude (/mcp) también escribe ahí,
   // así que la app consulta cambios cada 15 s y fusiona si hay escrituras simultáneas.
   const currentState: AppState = useMemo(
     () => ({ transactions, goals, scheduledPayments, budget, userProfile, semesterConfig }),

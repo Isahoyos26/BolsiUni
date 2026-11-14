@@ -7,15 +7,11 @@
 > genera su **link personal** del conector (`https://bolsiuni.onrender.com/mcp?key=edu_...`) y lo pega en su Claude.
 > Solo se guarda el hash de la clave; generar un link nuevo invalida el anterior.
 >
-> El conector existe en dos versiones con las mismas herramientas y los mismos datos:
-> - **Dentro de la app** (`/mcp`, [`mcp.ts`](mcp.ts)), gratis y para cualquier estudiante.
-> - **En Prefect Horizon** ([`mcp_server/server.py`](mcp_server/server.py)), con el login de Horizon (solo miembros de la organización).
->   Se usa con el mismo link cambiando la base: `https://eduplata.fastmcp.app/mcp?key=edu_...`.
+> El conector vive dentro de la app (ruta `/mcp`, [`mcp.ts`](mcp.ts)): gratis y para cualquier estudiante.
 >
 > 1. **Supabase:** ejecuta [`supabase/schema.sql`](../supabase/schema.sql).
 > 2. **Render:** servicio con Root Directory `eduplata`. Variables: `SUPABASE_URL` y `SUPABASE_SERVICE_ROLE_KEY`.
 >    El workflow [`keepalive.yml`](../.github/workflows/keepalive.yml) evita que el plan gratis se duerma de día.
-> 3. **Prefect Horizon (opcional):** entrypoint `eduplata/mcp_server/server.py:mcp` y las variables de Supabase.
 >
 > Herramientas: `resumen`, `registrar_movimiento`, `listar_movimientos`, `eliminar_movimiento`, `crear_meta_ahorro`,
 > `abonar_a_meta`, `programar_pago`, `marcar_pago_hecho`, `listar_pagos_programados`, `configurar_presupuesto`, `listar_categorias`.
