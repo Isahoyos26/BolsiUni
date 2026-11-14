@@ -12,6 +12,7 @@ import dotenv from 'dotenv';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
+import { registerMcpRoute } from './mcp';
 
 dotenv.config();
 
@@ -475,6 +476,8 @@ async function startServer() {
   const app = express();
   const PORT = parseInt(process.env.PORT || '3000', 10);
 
+  // Render está detrás de un proxy
+  app.set('trust proxy', 1);
   app.use(express.json({ limit: '10mb' }));
 
   // Protección opcional con contraseña (recomendado al publicar la app en internet).
@@ -482,7 +485,8 @@ async function startServer() {
   const APP_PASSWORD = process.env.APP_PASSWORD || '';
   if (APP_PASSWORD) {
     app.use((req, res, next) => {
-      if (req.path === '/api/health') return next();
+      // /mcp tiene su propia protección (clave del link del conector)
+      if (req.path === '/api/health' || req.path === '/mcp') return next();
       const header = req.headers.authorization || '';
       const [scheme, encoded] = header.split(' ');
       if (scheme === 'Basic' && encoded) {
@@ -608,6 +612,9 @@ async function startServer() {
       return res.status(500).json({ success: false, error: 'Error guardando base de datos.' });
     }
   });
+
+  // Conector MCP de Claude en /mcp (link secreto de la empresa: /mcp?key=MCP_KEY)
+  registerMcpRoute(app, { readState, writeState: (data, base) => writeState(data, base) });
 
   // Proxy seguro para la API de Claude (Anthropic)
   app.post('/api/claude/chat', async (req: Request, res: Response) => {

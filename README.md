@@ -75,7 +75,12 @@ cambios cada 15 s, así que lo que registres por Claude aparece solo.
 2. Llena las variables: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `APP_PASSWORD` (recomendado) y, si quieres, `ANTHROPIC_API_KEY`.
 3. El plan gratuito se duerme tras 15 min sin visitas y tarda ~1 min en despertar; los datos no se pierden porque viven en Supabase.
 
-### 3. Conector de Claude (Prefect Horizon)
+### 3. Conector de Claude dentro de la app (gratis, para todos los socios)
+La app sirve el conector en `/mcp` ([`mcp.ts`](mcp.ts)). En Render define `MCP_KEY` (una clave larga y secreta) y comparte con
+los socios el link `https://<tu-app>.onrender.com/mcp?key=<MCP_KEY>`. Cada socio lo agrega en Claude → Conectores → Conector
+personalizado, con "Sin inicio de sesión". La contraseña de la app (`APP_PASSWORD`) no aplica a `/mcp`.
+
+### 3b. (Opcional) Conector en Prefect Horizon
 1. Entra a [horizon.prefect.io](https://horizon.prefect.io) con GitHub y crea un servidor desde este repositorio.
 2. **Entrypoint:** `mcp_server/server.py:mcp` (las dependencias salen de [`requirements.txt`](requirements.txt)).
 3. Variables de entorno: `SUPABASE_URL` y `SUPABASE_SERVICE_ROLE_KEY`.
