@@ -8,9 +8,9 @@
 
 import express, { Request, Response } from 'express';
 import dotenv from 'dotenv';
-import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { registerAccountRoutes } from './accounts';
 
 dotenv.config();
 
@@ -346,147 +346,22 @@ async function startServer() {
 
   app.use(express.json({ limit: '10mb' }));
 
-  // Protección opcional con contraseña (recomendado al publicar la app en internet).
-  // Si APP_PASSWORD está definido, el navegador pide usuario/contraseña (usuario: cualquiera).
-  const APP_PASSWORD = process.env.APP_PASSWORD || '';
-  if (APP_PASSWORD) {
-    app.use((req, res, next) => {
-      if (req.path === '/api/health') return next();
-      const header = req.headers.authorization || '';
-      const [scheme, encoded] = header.split(' ');
-      if (scheme === 'Basic' && encoded) {
-        const decoded = Buffer.from(encoded, 'base64').toString('utf-8');
-        const password = decoded.slice(decoded.indexOf(':') + 1);
-        if (password === APP_PASSWORD) return next();
-      }
-      res.set('WWW-Authenticate', 'Basic realm="EduPlata"');
-      return res.status(401).send('Autenticación requerida');
-    });
-  }
+  // Cuentas de usuario, datos por usuario y link personal del conector de Claude (ver accounts.ts)
+  const accounts = registerAccountRoutes(app, path.resolve(__dirname, 'data'));
 
-  // ───────────── Almacenamiento (Supabase si está configurado, si no archivo local) ─────────────
-  // El estado completo de la app se guarda como un único documento JSON con número de versión.
-  // La versión permite detectar escrituras concurrentes (app web vs. conector MCP de Claude).
-  // Tolera URLs pegadas sin https://, con espacios, comillas, / final o /rest/v1
-  const clean = (v: string) => v.trim().replace(/^['"]|['"]$/g, '').trim();
-  const rawUrl = clean(process.env.SUPABASE_URL || '');
-  const SUPABASE_URL = rawUrl
-    ? (/^https?:\/\//.test(rawUrl) ? rawUrl : `https://${rawUrl}`).replace(/\/+$/, '').replace(/\/rest\/v1$/, '')
-    : '';
-  const SUPABASE_KEY = clean(process.env.SUPABASE_SERVICE_ROLE_KEY || '');
-  const useSupabase = Boolean(SUPABASE_URL && SUPABASE_KEY);
-  const DB_FILE_PATH = path.resolve(__dirname, 'data', 'eduplata_database.json');
+  // El asistente de IA solo para usuarios con sesión iniciada
+  app.use('/api/claude', accounts.requireUser);
 
-  if (!useSupabase && !fs.existsSync(path.resolve(__dirname, 'data'))) {
-    fs.mkdirSync(path.resolve(__dirname, 'data'), { recursive: true });
-  }
-  console.log(`[EduPlata DB] Almacenamiento: ${useSupabase ? 'Supabase' : 'archivo local ' + DB_FILE_PATH}`);
-
-  // Claves nuevas (sb_secret_...) van solo en `apikey`; las legacy (JWT service_role) también en Authorization.
-  const sbHeaders = (): Record<string, string> => ({
-    apikey: SUPABASE_KEY,
-    ...(SUPABASE_KEY.startsWith('eyJ') ? { Authorization: `Bearer ${SUPABASE_KEY}` } : {}),
-    'Content-Type': 'application/json',
-    Prefer: 'return=representation'
-  });
-
-  type StoredState = { data: any; version: number };
-
-  async function readState(): Promise<StoredState> {
-    if (useSupabase) {
-      const r = await fetch(`${SUPABASE_URL}/rest/v1/eduplata_state?id=eq.1&select=data,version`, { headers: sbHeaders() });
-      if (!r.ok) throw new Error(`Supabase GET ${r.status}: ${await r.text()}`);
-      const rows = await r.json();
-      if (rows.length === 0) return { data: null, version: 0 };
-      return { data: rows[0].data && Object.keys(rows[0].data).length ? rows[0].data : null, version: Number(rows[0].version) };
-    }
-    if (!fs.existsSync(DB_FILE_PATH)) return { data: null, version: 0 };
-    const parsed = JSON.parse(fs.readFileSync(DB_FILE_PATH, 'utf-8'));
-    // Compatibilidad con el formato anterior (solo los datos, sin versión)
-    if (parsed && typeof parsed.version === 'number' && 'data' in parsed) return parsed;
-    return { data: parsed, version: 0 };
-  }
-
-  // Escribe solo si la versión guardada sigue siendo baseVersion. Devuelve null si hubo conflicto.
-  async function writeState(data: any, baseVersion: number): Promise<number | null> {
-    const next = baseVersion + 1;
-    if (useSupabase) {
-      if (baseVersion === 0) {
-        const r = await fetch(`${SUPABASE_URL}/rest/v1/eduplata_state?on_conflict=id`, {
-          method: 'POST',
-          headers: { ...sbHeaders(), Prefer: 'return=representation,resolution=ignore-duplicates' },
-          body: JSON.stringify({ id: 1, data, version: next })
-        });
-        if (!r.ok) throw new Error(`Supabase POST ${r.status}: ${await r.text()}`);
-        const rows = await r.json();
-        if (rows.length === 1) return next;
-        // La fila ya existía (sembrada con version 0): intentar actualización condicional
-      }
-      const r = await fetch(`${SUPABASE_URL}/rest/v1/eduplata_state?id=eq.1&version=eq.${baseVersion}`, {
-        method: 'PATCH',
-        headers: sbHeaders(),
-        body: JSON.stringify({ data, version: next, updated_at: new Date().toISOString() })
-      });
-      if (!r.ok) throw new Error(`Supabase PATCH ${r.status}: ${await r.text()}`);
-      const rows = await r.json();
-      return rows.length === 1 ? next : null;
-    }
-    const current = await readState();
-    if (current.version !== baseVersion) return null;
-    fs.writeFileSync(DB_FILE_PATH, JSON.stringify({ version: next, data }, null, 2), 'utf-8');
-    return next;
-  }
-
-  // Cargar base de datos
-  app.get('/api/database', async (req: Request, res: Response) => {
-    try {
-      const { data, version } = await readState();
-      return res.json({ success: true, data, version });
-    } catch (err: any) {
-      console.error('[EduPlata DB] Error leyendo base de datos:', err);
-      return res.status(500).json({ success: false, error: 'Error leyendo base de datos.' });
-    }
-  });
-
-  // Guardar base de datos. Body: { data, baseVersion }. Responde 409 con el estado actual si hubo conflicto.
-  app.post('/api/database', async (req: Request, res: Response) => {
-    try {
-      const { data, baseVersion } = req.body || {};
-      if (!data || typeof data !== 'object' || typeof baseVersion !== 'number') {
-        return res.status(400).json({ success: false, error: 'Se requiere { data, baseVersion }.' });
-      }
-      const version = await writeState(data, baseVersion);
-      if (version === null) {
-        const current = await readState();
-        return res.status(409).json({ success: false, conflict: true, data: current.data, version: current.version });
-      }
-      return res.json({ success: true, version });
-    } catch (err: any) {
-      console.error('[EduPlata DB] Error guardando base de datos:', err);
-      return res.status(500).json({ success: false, error: 'Error guardando base de datos.' });
-    }
-  });
-
-  // Salud + diagnóstico de la conexión a la base de datos (sin exponer datos ni claves)
   app.get('/api/health', async (req: Request, res: Response) => {
-    let database = 'ok';
-    try {
-      await readState();
-    } catch (err: any) {
-      const msg = String(err?.message || err);
-      const status = msg.match(/Supabase \w+ (\d{3})/)?.[1];
-      database = status ? `error HTTP ${status} de Supabase` : `error de conexión: ${err?.cause?.code || msg.slice(0, 80)}`;
-    }
     res.json({
       status: 'ok',
       app: 'EduPlata',
-      storage: useSupabase ? 'supabase' : 'file',
-      supabaseHost: useSupabase ? new URL(SUPABASE_URL).host : null,
-      database,
-      passwordProtected: Boolean(APP_PASSWORD)
+      storage: accounts.supabaseEnabled ? 'supabase' : 'file',
+      supabaseHost: accounts.supabaseHost,
+      database: await accounts.healthCheck(),
+      auth: accounts.supabaseEnabled ? 'supabase' : 'local'
     });
   });
-
 
   // Endpoint de Backend para Claude
   app.post('/api/claude/chat', async (req: Request, res: Response) => {

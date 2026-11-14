@@ -1,13 +1,15 @@
 # 🇨🇴 EduPlata - Finanzas para Universitarios
 
-> ## ☁️ Despliegue 24/7 y conector de Claude
+> ## ☁️ Cuentas, despliegue 24/7 y conector de Claude
 >
-> Esta app vive en la carpeta `eduplata/` del repositorio. Se despliega igual que la de MOAI (ver el README de la raíz):
+> Cada estudiante crea su cuenta (correo + contraseña, Supabase Auth) y ve solo sus datos
+> (tabla `eduplata_user_state`, una fila por usuario). En **Configuración → Conectar con Claude**
+> genera su **link personal** del conector (`https://eduplata.fastmcp.app/mcp?key=edu_...`) y lo pega en su Claude.
+> Solo se guarda el hash de la clave; generar un link nuevo invalida el anterior.
 >
-> 1. **Supabase:** ejecuta [`supabase/schema.sql`](../supabase/schema.sql) (crea la tabla `eduplata_state`).
-> 2. **Render:** el Blueprint [`render.yaml`](../render.yaml) crea el servicio `eduplata` (rootDir `eduplata`). Variables: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `APP_PASSWORD`.
-> 3. **Prefect Horizon:** nuevo servidor con entrypoint `eduplata/mcp_server/server.py:mcp` y las mismas 2 variables de Supabase.
-> 4. **Claude:** Configuración → Conectores → Agregar conector personalizado → URL de Horizon terminada en `/mcp`.
+> 1. **Supabase:** ejecuta [`supabase/schema.sql`](../supabase/schema.sql).
+> 2. **Render:** servicio con Root Directory `eduplata`. Variables: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `MCP_PUBLIC_URL`.
+> 3. **Prefect Horizon:** entrypoint `eduplata/mcp_server/server.py:mcp`, variables de Supabase y **autenticación de Horizon desactivada** (la protección la da la clave personal de cada link).
 >
 > Herramientas: `resumen`, `registrar_movimiento`, `listar_movimientos`, `eliminar_movimiento`, `crear_meta_ahorro`,
 > `abonar_a_meta`, `programar_pago`, `marcar_pago_hecho`, `listar_pagos_programados`, `configurar_presupuesto`, `listar_categorias`.

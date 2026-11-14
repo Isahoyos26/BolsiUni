@@ -51,6 +51,8 @@ import { exportTransactionsToExcel } from './services/excelReport';
 import { getNextRecurringDate } from './utils/calendarUtils';
 import { Plus } from 'lucide-react';
 import { AppState, mergeStates, statesEqual } from './utils/syncMerge';
+import type { AuthUser } from './Root';
+import { ConnectClaudeCard } from './components/ConnectClaudeCard';
 
 const STORAGE_KEYS = {
   TRANSACTIONS: 'bolsiuni_v2_transactions',
@@ -63,7 +65,7 @@ const STORAGE_KEYS = {
   SCHEDULED_PAYMENTS: 'bolsiuni_v2_scheduled_payments'
 };
 
-export default function App() {
+export default function App({ user, onLogout }: { user: AuthUser; onLogout: () => void }) {
   // Pestaña activa
   const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
 
@@ -277,7 +279,9 @@ export default function App() {
     const sync = syncRef.current;
     if (sync.saving) return;
     try {
-      const res = await fetch('/api/database').then(r => r.json());
+      const r = await fetch('/api/database');
+      if (r.status === 401) return window.location.reload(); // sesión vencida → login
+      const res = await r.json();
       if (!res.success) return;
       const version = Number(res.version) || 0;
       const local = currentStateRef.current;
@@ -288,6 +292,16 @@ export default function App() {
           const remote = normalizeRemote(res.data, local);
           sync.base = remote;
           applyState(remote);
+        } else {
+          // Cuenta nueva: empieza vacía (nunca con datos cacheados de otra sesión)
+          applyState({
+            transactions: INITIAL_TRANSACTIONS,
+            goals: INITIAL_SAVINGS_GOALS,
+            scheduledPayments: INITIAL_SCHEDULED_PAYMENTS,
+            budget: INITIAL_BUDGET,
+            userProfile: { ...INITIAL_USER_PROFILE, name: user.name || '' },
+            semesterConfig: INITIAL_SEMESTER_CONFIG
+          });
         }
         return;
       }
@@ -315,6 +329,7 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ data: local, baseVersion: sync.version })
       });
+      if (r.status === 401) return window.location.reload(); // sesión vencida → login
       const res = await r.json();
       if (r.status === 409 && res.conflict) {
         const remote = normalizeRemote(res.data, local);
@@ -605,6 +620,7 @@ export default function App() {
         onExportExcel={handleExportExcel}
         onOpenSettings={() => setActiveTab('settings')}
         studentName={userProfile.name}
+        onLogout={onLogout}
       />
 
       {/* Navegación por pestañas (Desktop top bar & Mobile bottom bar) */}
@@ -732,6 +748,11 @@ export default function App() {
           />
         )}
 
+        {activeTab === 'settings' && (
+          <div className="max-w-4xl mx-auto mb-6">
+            <ConnectClaudeCard user={user} onLogout={onLogout} />
+          </div>
+        )}
         {activeTab === 'settings' && (
           <SettingsView
             userProfile={userProfile}

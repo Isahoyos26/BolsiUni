@@ -6,7 +6,7 @@
  */
 
 import React from 'react';
-import { Download, FileSpreadsheet, Moon, Sun, Wallet, Sparkles, GraduationCap } from 'lucide-react';
+import { Download, FileSpreadsheet, Moon, Sun, Wallet, Sparkles, GraduationCap, LogOut } from 'lucide-react';
 import { formatCOP } from '../utils/formatters';
 
 interface NavbarProps {
@@ -18,6 +18,7 @@ interface NavbarProps {
   hasApiKey?: boolean;
   onOpenSettings: () => void;
   studentName: string;
+  onLogout?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -27,7 +28,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   onExportPDF,
   onExportExcel,
   onOpenSettings,
-  studentName
+  studentName,
+  onLogout
 }) => {
   return (
     <header className="sticky top-0 z-30 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 transition-colors">
@@ -104,6 +106,18 @@ export const Navbar: React.FC<NavbarProps> = ({
               <GraduationCap className="w-5 h-5" />
             </div>
           </button>
+
+          {/* Cerrar sesión */}
+          {onLogout && (
+            <button
+              onClick={onLogout}
+              aria-label="Cerrar sesión"
+              title="Cerrar sesión"
+              className="p-2 rounded-xl text-slate-600 hover:text-rose-600 dark:text-slate-300 dark:hover:text-rose-400 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
+          )}
 
         </div>
       </div>

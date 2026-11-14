@@ -3,12 +3,15 @@ EduPlata (BolsiUni) — Conector MCP para Claude.
 
 Permite que Claude lea y registre las finanzas de estudiante (movimientos, metas de ahorro,
 pagos programados y presupuesto) en la misma base de datos que usa la app web
-(tabla `eduplata_state` en Supabase).
+(tabla `eduplata_user_state` en Supabase, una fila por usuario).
+
+Cada estudiante usa su link personal (generado en la app): https://<servidor>/mcp?key=edu_...
+El conector busca al usuario por el hash SHA-256 de esa clave.
 
 Variables de entorno:
   SUPABASE_URL                 https://<proyecto>.supabase.co
   SUPABASE_SERVICE_ROLE_KEY    clave service_role del proyecto (secreta)
-  EDUPLATA_DB_FILE                 (opcional, solo pruebas locales) ruta a eduplata/data/eduplata_database.json
+  EDUPLATA_DB_FILE                 (opcional, solo pruebas locales) ruta a eduplata/data/eduplata_database.json (usuario "local")
 
 Despliegue en Prefect Horizon: entrypoint `eduplata/mcp_server/server.py:mcp`.
 """
@@ -23,8 +26,12 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Annotated, Any, Callable, Literal, Optional
 
+import hashlib
+
 import httpx
 from fastmcp import FastMCP
+from fastmcp.exceptions import ToolError
+from fastmcp.server.dependencies import get_http_request
 from pydantic import Field
 
 mcp = FastMCP(
@@ -80,11 +87,63 @@ def _headers(extra: dict[str, str] | None = None) -> dict[str, str]:
     return h
 
 
+TABLE = "eduplata_user_state"
+
+
+def _connector_key() -> Optional[str]:
+    """Clave personal del link del conector: ?key=... (o cabecera X-EduPlata-Key)."""
+    try:
+        req = get_http_request()
+    except RuntimeError:
+        return None
+    return _clean(req.query_params.get("key") or req.headers.get("x-eduplata-key") or "") or None
+
+
+def _current_user_id() -> str:
+    if not (SUPABASE_URL and SUPABASE_KEY):
+        if LOCAL_FILE:
+            return "local"
+        raise ToolError("Conector sin configurar: define SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY en Horizon.")
+    key = _connector_key()
+    if not key:
+        raise ToolError(
+            "Falta tu link personal. En la app EduPlata ve a Configuración → Conectar con Claude, "
+            "genera tu link y úsalo como URL del conector en Claude."
+        )
+    # Sin caché: si el estudiante genera un link nuevo, el anterior deja de servir de inmediato
+    digest = hashlib.sha256(key.encode()).hexdigest()
+    r = httpx.get(
+        f"{SUPABASE_URL}/rest/v1/{TABLE}",
+        params={"connector_key_hash": f"eq.{digest}", "select": "user_id"},
+        headers=_headers(),
+        timeout=20,
+    )
+    r.raise_for_status()
+    rows = r.json()
+    if not rows:
+        raise ToolError(
+            "Este link del conector no es válido o fue reemplazado por uno nuevo. "
+            "Genera tu link en la app (Configuración → Conectar con Claude) y actualízalo en Claude."
+        )
+    return rows[0]["user_id"]
+
+
+def _read_local_all() -> dict[str, Any]:
+    p = Path(LOCAL_FILE)
+    if not p.exists():
+        return {}
+    parsed = json.loads(p.read_text("utf-8"))
+    if isinstance(parsed, dict) and "users" in parsed:
+        return parsed["users"]
+    return {"local": {"data": parsed.get("data"), "version": parsed.get("version", 0)}}
+
+
 def _read() -> tuple[dict[str, Any], int]:
+    user_id = _current_user_id()
     if SUPABASE_URL and SUPABASE_KEY:
         r = httpx.get(
-            f"{SUPABASE_URL}/rest/v1/eduplata_state",
-            params={"id": "eq.1", "select": "data,version"},
+            f"{SUPABASE_URL}/rest/v1/{TABLE}",
+            params={"user_id": f"eq.{user_id}", "select": "data,version"},
             headers=_headers(),
             timeout=20,
         )
@@ -93,53 +152,32 @@ def _read() -> tuple[dict[str, Any], int]:
         if not rows:
             return {}, 0
         return rows[0]["data"] or {}, int(rows[0]["version"])
-    if LOCAL_FILE:
-        p = Path(LOCAL_FILE)
-        if not p.exists():
-            return {}, 0
-        parsed = json.loads(p.read_text("utf-8"))
-        if isinstance(parsed, dict) and "data" in parsed and isinstance(parsed.get("version"), int):
-            return parsed["data"] or {}, parsed["version"]
-        return parsed or {}, 0
-    raise RuntimeError(
-        "Conector sin configurar: define SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY en Horizon."
-    )
+    row = _read_local_all().get(user_id) or {}
+    return row.get("data") or {}, int(row.get("version", 0))
 
 
 def _write(data: dict[str, Any], base_version: int) -> int:
+    user_id = _current_user_id()
     nxt = base_version + 1
     if SUPABASE_URL and SUPABASE_KEY:
-        if base_version == 0:
-            r = httpx.post(
-                f"{SUPABASE_URL}/rest/v1/eduplata_state",
-                params={"on_conflict": "id"},
-                headers=_headers({"Prefer": "return=representation,resolution=ignore-duplicates"}),
-                json={"id": 1, "data": data, "version": nxt},
-                timeout=20,
-            )
-            r.raise_for_status()
-            if len(r.json()) == 1:
-                return nxt
+        # La fila del usuario ya existe: se crea al generar el link del conector
         r = httpx.patch(
-            f"{SUPABASE_URL}/rest/v1/eduplata_state",
-            params={"id": "eq.1", "version": f"eq.{base_version}"},
+            f"{SUPABASE_URL}/rest/v1/{TABLE}",
+            params={"user_id": f"eq.{user_id}", "version": f"eq.{base_version}"},
             headers=_headers(),
-            json={
-                "data": data,
-                "version": nxt,
-                "updated_at": datetime.now(timezone.utc).isoformat(),
-            },
+            json={"data": data, "version": nxt, "updated_at": datetime.now(timezone.utc).isoformat()},
             timeout=20,
         )
         r.raise_for_status()
         if len(r.json()) != 1:
             raise ConflictError()
         return nxt
-    _, current = _read()
-    if current != base_version:
+    users = _read_local_all()
+    if int((users.get(user_id) or {}).get("version", 0)) != base_version:
         raise ConflictError()
+    users[user_id] = {"data": data, "version": nxt}
     Path(LOCAL_FILE).parent.mkdir(parents=True, exist_ok=True)
-    Path(LOCAL_FILE).write_text(json.dumps({"version": nxt, "data": data}, ensure_ascii=False, indent=2), "utf-8")
+    Path(LOCAL_FILE).write_text(json.dumps({"users": users}, ensure_ascii=False, indent=2), "utf-8")
     return nxt
 
 
@@ -200,7 +238,7 @@ def _new_id(prefix: str) -> str:
 
 
 def _cop(n: float) -> str:
-    return "$" + f"{round(n):,}".replace(",", ".")
+    return ("-" if n < 0 else "") + "$" + f"{abs(round(n)):,}".replace(",", ".")
 
 
 def _balance(txs: list[dict[str, Any]]) -> int:
