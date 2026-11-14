@@ -467,8 +467,24 @@ async function startServer() {
     }
   });
 
-  app.get('/api/health', (req: Request, res: Response) => {
-    res.json({ status: 'ok', app: 'EduPlata', storage: useSupabase ? 'supabase' : 'file' });
+  // Salud + diagnóstico de la conexión a la base de datos (sin exponer datos ni claves)
+  app.get('/api/health', async (req: Request, res: Response) => {
+    let database = 'ok';
+    try {
+      await readState();
+    } catch (err: any) {
+      const msg = String(err?.message || err);
+      const status = msg.match(/Supabase \w+ (\d{3})/)?.[1];
+      database = status ? `error HTTP ${status} de Supabase` : `error de conexión: ${err?.cause?.code || msg.slice(0, 80)}`;
+    }
+    res.json({
+      status: 'ok',
+      app: 'EduPlata',
+      storage: useSupabase ? 'supabase' : 'file',
+      supabaseHost: useSupabase ? new URL(SUPABASE_URL).host : null,
+      database,
+      passwordProtected: Boolean(APP_PASSWORD)
+    });
   });
 
 
